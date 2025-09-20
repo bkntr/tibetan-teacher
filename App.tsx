@@ -1,14 +1,23 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { AppState } from './types';
-import { transcribeAndTranslateImage, translateText } from './services/geminiService';
-import ImageUploader from './components/ImageUploader';
+import { transcribeImage, translateTranscription, getExplanationForSelection } from './services/geminiService';
 import ResultCard from './components/ResultCard';
 import Spinner from './components/Spinner';
-import { SparklesIcon, XCircleIcon, CheckCircleIcon, DocumentTextIcon, LanguageIcon } from './components/icons';
+import { SparklesIcon, XCircleIcon, CheckCircleIcon, DocumentTextIcon, LanguageIcon, UploadIcon, XIcon } from './components/icons';
+
+type ImageStatus = 'pending' | 'transcribing' | 'success' | 'error';
+
+interface ImageFile {
+  id: string;
+  file: File;
+  url: string;
+  status: ImageStatus;
+  transcription?: string;
+  error?: string;
+}
 
 const App: React.FC = () => {
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [images, setImages] = useState<ImageFile[]>([]);
   const [transcription, setTranscription] = useState<string | null>(null);
   const [translation, setTranslation] = useState<string | null>(null);
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
@@ -18,76 +27,141 @@ const App: React.FC = () => {
   const [selectionTranslation, setSelectionTranslation] = useState<string | null>(null);
   const [isTranslatingSelection, setIsTranslatingSelection] = useState<boolean>(false);
   const [selectionError, setSelectionError] = useState<string | null>(null);
+  const [buttonPosition, setButtonPosition] = useState<{ top: number; left: number } | null>(null);
+  const [useCustomBudget, setUseCustomBudget] = useState<boolean>(false);
+  const [thinkingBudget, setThinkingBudget] = useState<number>(50);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleImageSelect = useCallback((file: File) => {
+  // Clean up object URLs when component unmounts or images change
+  useEffect(() => {
+    return () => {
+      images.forEach(image => URL.revokeObjectURL(image.url));
+    };
+  }, [images]);
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     handleReset();
-    setImageFile(file);
-    setImageUrl(URL.createObjectURL(file));
-  }, []);
+    const files = event.target.files;
+    if (files) {
+      const newImageFiles = Array.from(files).map(file => ({
+        id: `${file.name}-${file.lastModified}`,
+        file,
+        url: URL.createObjectURL(file),
+        status: 'pending' as ImageStatus,
+      }));
+      setImages(newImageFiles);
+    }
+    // Reset file input value to allow re-uploading the same file
+    event.target.value = '';
+  };
+  
+  const handleRemoveImage = (idToRemove: string) => {
+    setImages(prevImages => {
+      const imageToRemove = prevImages.find(img => img.id === idToRemove);
+      if (imageToRemove) {
+        URL.revokeObjectURL(imageToRemove.url);
+      }
+      return prevImages.filter(image => image.id !== idToRemove);
+    });
+  };
 
-  const handleProcessImage = async () => {
-    if (!imageFile) {
-      setError("Please select an image first.");
+  const handleProcessImages = async () => {
+    if (images.length === 0) {
+      setError("Please select at least one image.");
       setAppState(AppState.ERROR);
       return;
     }
 
-    setAppState(AppState.PROCESSING);
+    setAppState(AppState.PROCESSING_TRANSCRIPTION);
     setError(null);
     setTranscription(null);
     setTranslation(null);
+    setSelectedText(null);
+    setButtonPosition(null);
+    setSelectionTranslation(null);
+    setSelectionError(null);
+
+    // Set all images to transcribing
+    setImages(prev => prev.map(img => ({ ...img, status: 'transcribing' as ImageStatus })));
+
+    const transcriptionPromises = images.map(image =>
+      transcribeImage(image.file).then(result => ({ ...image, status: 'success' as ImageStatus, transcription: result }))
+      .catch(err => ({ ...image, status: 'error' as ImageStatus, error: err.message }))
+    );
+
+    const updatedImages = await Promise.all(transcriptionPromises);
+    setImages(updatedImages);
+
+    const successfulTranscriptions = updatedImages
+      .filter(img => img.status === 'success' && img.transcription)
+      .map(img => img.transcription);
+
+    if (successfulTranscriptions.length === 0) {
+      setError("Transcription failed for all images.");
+      setAppState(AppState.ERROR);
+      return;
+    }
+
+    const combinedTranscription = successfulTranscriptions.join('\n\n---\n\n');
+    setTranscription(combinedTranscription);
+    setAppState(AppState.PROCESSING_TRANSLATION);
 
     try {
-      const results = await transcribeAndTranslateImage(imageFile);
-      setTranscription(results.transcription);
-      setTranslation(results.translation);
+      const budgetToSend = useCustomBudget ? thinkingBudget : -1;
+      const translationResult = await translateTranscription(combinedTranscription, budgetToSend);
+      setTranslation(translationResult);
       setAppState(AppState.SUCCESS);
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : "An unknown error occurred.";
+    } catch (translationError) {
+      const errorMessage = translationError instanceof Error ? translationError.message : "An unknown error occurred during translation.";
       setError(errorMessage);
       setAppState(AppState.ERROR);
     }
   };
   
   const handleReset = () => {
-    setImageFile(null);
-    if(imageUrl) {
-      URL.revokeObjectURL(imageUrl);
-    }
-    setImageUrl(null);
+    setImages([]);
     setTranscription(null);
     setTranslation(null);
     setError(null);
     setAppState(AppState.IDLE);
     setSelectedText(null);
+    setButtonPosition(null);
     setSelectionTranslation(null);
     setSelectionError(null);
     setIsTranslatingSelection(false);
   };
 
   const handleSelection = () => {
-    const text = window.getSelection()?.toString().trim() ?? null;
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() ?? null;
+    
     if (text && text.length > 0) {
-      if(text !== selectedText) {
-        setSelectionTranslation(null);
-        setSelectionError(null);
-      }
       setSelectedText(text);
+      const range = selection?.getRangeAt(0);
+      if (range) {
+        const rect = range.getBoundingClientRect();
+        setButtonPosition({
+          top: rect.top + rect.height / 2,
+          left: rect.right + 5,
+        });
+      }
     } else {
       setSelectedText(null);
+      setButtonPosition(null);
     }
   };
 
   const handleTranslateSelection = async () => {
     if (!selectedText || !transcription) return;
 
+    setButtonPosition(null);
     setIsTranslatingSelection(true);
     setSelectionError(null);
     setSelectionTranslation(null);
 
     try {
-      const result = await translateText(selectedText, transcription);
+      const result = await getExplanationForSelection(selectedText, transcription);
       setSelectionTranslation(result);
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : "An unknown error occurred during selection translation.";
@@ -97,7 +171,10 @@ const App: React.FC = () => {
     }
   };
   
-  const isProcessing = appState === AppState.PROCESSING;
+  const isProcessingTranscription = appState === AppState.PROCESSING_TRANSCRIPTION;
+  const isProcessingTranslation = appState === AppState.PROCESSING_TRANSLATION;
+  const isProcessing = isProcessingTranscription || isProcessingTranslation;
+  const canSelectText = appState === AppState.SUCCESS;
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 font-sans">
@@ -110,42 +187,120 @@ const App: React.FC = () => {
                 </h1>
             </div>
             <p className="mt-2 text-slate-600 dark:text-slate-400">
-                Upload a photo of Tibetan script to get an AI-powered transcription and translation.
+                Upload photos of Tibetan script to get an AI-powered transcription and translation.
             </p>
         </header>
 
+        {buttonPosition && (
+          <button
+            onClick={handleTranslateSelection}
+            className="fixed z-10 bg-indigo-600 text-white p-2 rounded-full shadow-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-slate-900 transform -translate-y-1/2 transition-transform hover:scale-110"
+            style={{ top: `${buttonPosition.top}px`, left: `${buttonPosition.left}px` }}
+            aria-label="Translate selected text"
+            title="Translate selection"
+          >
+            <LanguageIcon className="w-5 h-5" />
+          </button>
+        )}
+
         <div className="bg-white dark:bg-slate-800/50 p-6 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-                <ImageUploader onImageSelect={handleImageSelect} imageUrl={imageUrl} disabled={isProcessing} />
-                <div className="flex flex-col gap-4">
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                        Once you upload an image, click the button to start the AI process. The model will first transcribe the Tibetan text and then translate it into English.
-                    </p>
-                    {appState === AppState.IDLE && imageUrl && (
-                         <button
-                            onClick={handleProcessImage}
-                            disabled={!imageUrl || isProcessing}
-                            className="w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all duration-300"
-                        >
-                            <SparklesIcon className="w-5 h-5"/>
-                            Transcribe & Translate
-                        </button>
-                    )}
-                    {appState !== AppState.IDLE && (
-                         <button
-                            onClick={handleReset}
-                            className="w-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 font-semibold py-3 px-4 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center justify-center gap-2 transition-all duration-300"
-                        >
-                            Start Over
-                        </button>
-                    )}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept="image/*"
+                className="hidden"
+                disabled={isProcessing}
+                multiple
+              />
+              {images.map(image => (
+                <div key={image.id} className="relative aspect-square group">
+                  <img src={image.url} alt={`preview ${image.id}`} className="object-cover w-full h-full rounded-lg" />
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                    {image.status === 'transcribing' && <Spinner className="w-8 h-8 text-white"/>}
+                    {image.status === 'success' && <CheckCircleIcon className="w-10 h-10 text-green-400"/>}
+                    {image.status === 'error' && <XCircleIcon className="w-10 h-10 text-red-400"/>}
+                  </div>
+                  {!isProcessing && (
+                    <button onClick={() => handleRemoveImage(image.id)} className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-black/80">
+                      <XIcon className="w-4 h-4"/>
+                    </button>
+                  )}
                 </div>
+              ))}
+              {!isProcessing && (
+                 <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full aspect-square border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 hover:border-indigo-500 hover:text-indigo-500 transition-colors"
+                >
+                  <UploadIcon className="w-8 h-8" />
+                  <span className="text-sm mt-2">Add Images</span>
+                </button>
+              )}
+            </div>
+            
+            <div className="flex flex-col sm:flex-row gap-4">
+              <button
+                  onClick={handleProcessImages}
+                  disabled={images.length === 0 || isProcessing}
+                  className="w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all duration-300"
+              >
+                  <SparklesIcon className="w-5 h-5"/>
+                  Transcribe & Translate
+              </button>
+              <button
+                  onClick={handleReset}
+                  className="w-full sm:w-auto bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 font-semibold py-3 px-4 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center justify-center gap-2 transition-all duration-300"
+              >
+                  Start Over
+              </button>
+            </div>
+            
+            <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700 space-y-3">
+                <div className="flex items-center gap-3">
+                    <input
+                        id="custom-budget-checkbox"
+                        type="checkbox"
+                        checked={useCustomBudget}
+                        onChange={(e) => setUseCustomBudget(e.target.checked)}
+                        disabled={isProcessing}
+                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <label htmlFor="custom-budget-checkbox" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Use Custom Thinking Budget
+                    </label>
+                </div>
+                {useCustomBudget && (
+                    <div className="pl-7">
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                            Adjust AI thinking budget for the Pro model. Lower is faster but may reduce quality. The valid model range is 128-32768.
+                        </p>
+                        <div className="flex items-center gap-4">
+                            <input
+                                id="thinking-budget"
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="1"
+                                value={thinkingBudget}
+                                onChange={(e) => setThinkingBudget(Number(e.target.value))}
+                                disabled={isProcessing}
+                                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700 disabled:cursor-not-allowed"
+                                aria-label="Translation thinking budget"
+                            />
+                            <span className="font-semibold text-slate-800 dark:text-slate-200 w-10 text-center">{thinkingBudget}</span>
+                        </div>
+                    </div>
+                )}
             </div>
 
-            {appState === AppState.PROCESSING && (
+            {isProcessing && (
                 <div className="mt-6 flex items-center justify-center gap-3 text-slate-600 dark:text-slate-300">
                     <Spinner className="w-5 h-5" />
-                    <span className="font-medium">AI is working its magic...</span>
+                    <span className="font-medium">
+                      {isProcessingTranscription ? 'Transcribing text from images...' : 'Translating combined text...'}
+                    </span>
                 </div>
             )}
 
@@ -159,18 +314,23 @@ const App: React.FC = () => {
             {appState === AppState.SUCCESS && (
                 <div className="mt-6 flex items-center gap-2 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 p-3 rounded-lg">
                     <CheckCircleIcon className="w-5 h-5" />
-                    <p className="text-sm font-medium">Processing complete! You can now select transcribed text to translate phrases.</p>
+                    <p className="text-sm font-medium">Processing complete! You can now select transcribed text to get a contextual explanation.</p>
                 </div>
             )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div onMouseUp={handleSelection} className="cursor-text" aria-label="Tibetan Transcription Result. Select text to translate a phrase.">
+            <div 
+              onMouseUp={canSelectText ? handleSelection : undefined} 
+              className={canSelectText ? "cursor-text" : ""}
+              aria-label="Tibetan Transcription Result. Select text to translate a phrase."
+            >
                 <ResultCard 
                     icon={<DocumentTextIcon className="w-6 h-6"/>}
                     title="Tibetan Transcription" 
                     text={transcription}
-                    isLoading={isProcessing}
+                    isLoading={isProcessingTranscription}
+                    contentClassName="text-2xl"
                 />
             </div>
             <ResultCard
@@ -181,41 +341,21 @@ const App: React.FC = () => {
             />
         </div>
 
-        {selectedText && (
-          <div className="mt-6 bg-white dark:bg-slate-800/50 p-6 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Selected Tibetan Phrase</h3>
-                <p className="mt-1 text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/50 p-3 rounded-lg font-sans">
-                  {selectedText}
-                </p>
-              </div>
-              <button
-                onClick={handleTranslateSelection}
-                disabled={isTranslatingSelection}
-                className="w-full sm:w-auto bg-indigo-600 text-white font-semibold py-3 px-5 rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all duration-300 h-fit"
-                aria-label="Translate selected Tibetan phrase"
-              >
-                {isTranslatingSelection ? <Spinner className="w-5 h-5" /> : <LanguageIcon className="w-5 h-5" />}
-                <span>Translate Selection</span>
-              </button>
-            </div>
-            
+        {(isTranslatingSelection || selectionTranslation || selectionError) && (
+          <div className="mt-6">
             {selectionError && (
-              <div className="flex items-center gap-2 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
+              <div className="mb-4 flex items-center gap-2 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
                 <XCircleIcon className="w-5 h-5" />
                 <p className="text-sm font-medium">{selectionError}</p>
               </div>
             )}
-
-            {(isTranslatingSelection || selectionTranslation) && (
-              <ResultCard
-                icon={<LanguageIcon className="w-6 h-6" />}
-                title="Explanation of Selected Phrase"
-                text={selectionTranslation}
-                isLoading={isTranslatingSelection}
-              />
-            )}
+            <ResultCard
+              icon={<LanguageIcon className="w-6 h-6" />}
+              title="Explanation of Selected Phrase"
+              text={selectionTranslation}
+              isLoading={isTranslatingSelection}
+              contentClassName="text-xl"
+            />
           </div>
         )}
       </main>

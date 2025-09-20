@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { ClipboardIcon, ClipboardCheckIcon } from './icons';
 
 interface ResultCardProps {
     icon: React.ReactNode;
     title: string;
     text: string | null;
     isLoading: boolean;
+    contentClassName?: string;
 }
 
 // A simple component to render markdown-like text
@@ -54,7 +56,15 @@ const MarkdownRenderer: React.FC<{ text: string }> = ({ text }) => {
 };
 
 
-const ResultCard: React.FC<ResultCardProps> = ({ icon, title, text, isLoading }) => {
+const ResultCard: React.FC<ResultCardProps> = ({ icon, title, text, isLoading, contentClassName = '' }) => {
+    const [isCopied, setIsCopied] = useState(false);
+
+    const handleCopy = () => {
+        if (!text || isLoading) return;
+        navigator.clipboard.writeText(text);
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000); // Reset after 2 seconds
+    };
     
     const SkeletonLoader = () => (
         <div className="space-y-3 animate-pulse">
@@ -64,13 +74,32 @@ const ResultCard: React.FC<ResultCardProps> = ({ icon, title, text, isLoading })
         </div>
     );
 
+    if (!text) {
+      contentClassName = ''
+    }
+
     return (
-        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md p-6">
-            <div className="flex items-center gap-3 mb-4">
-                <div className="text-indigo-500">{icon}</div>
-                <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">{title}</h3>
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md p-6 h-full flex flex-col">
+            <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="flex items-center gap-3">
+                    <div className="text-indigo-500">{icon}</div>
+                    <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">{title}</h3>
+                </div>
+                {text && !isLoading && (
+                    <button 
+                        onClick={handleCopy}
+                        className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300 transition-colors"
+                        aria-label="Copy to clipboard"
+                    >
+                        {isCopied ? (
+                            <ClipboardCheckIcon className="w-5 h-5 text-green-500" />
+                        ) : (
+                            <ClipboardIcon className="w-5 h-5" />
+                        )}
+                    </button>
+                )}
             </div>
-            <div className="text-slate-600 dark:text-slate-300 font-sans min-h-[72px]">
+            <div className={`text-slate-600 dark:text-slate-300 font-sans min-h-[72px] flex-grow ${contentClassName}`}>
                 {isLoading ? (
                     <SkeletonLoader />
                 ) : text ? (
