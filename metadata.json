@@ -1,0 +1,5 @@
+{
+  "name": "Tibetan Text Transcriber & Translator",
+  "description": "An application that uses Gemini to transcribe Tibetan text from an uploaded image and then translates it into English.",
+  "requestFramePermissions": []
+}
