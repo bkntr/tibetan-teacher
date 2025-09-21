@@ -1,62 +1,20 @@
 import React, { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { ClipboardIcon, ClipboardCheckIcon } from './icons';
 
 interface ResultCardProps {
     icon: React.ReactNode;
     title: string;
+    subtitle?: string;
     text: string | null;
     isLoading: boolean;
     contentClassName?: string;
+    highlightRange?: { start: number; length: number } | null;
 }
 
-// A simple component to render markdown-like text
-const MarkdownRenderer: React.FC<{ text: string }> = ({ text }) => {
-    const elements: React.ReactNode[] = [];
-    let listItems: React.ReactNode[] = [];
-
-    const flushList = () => {
-        if (listItems.length > 0) {
-            elements.push(<ul key={`ul-${elements.length}`} className="list-disc list-inside space-y-1 my-2 pl-2">{listItems}</ul>);
-            listItems = [];
-        }
-    };
-
-    // Parses inline elements like **bold** text
-    const parseInline = (line: string): React.ReactNode => {
-        const parts = line.split(/(\*\*.*?\*\*)/g).filter(part => part);
-        return parts.map((part, index) => {
-            if (part.startsWith('**') && part.endsWith('**')) {
-                return <strong key={index}>{part.slice(2, -2)}</strong>;
-            }
-            return part;
-        });
-    };
-
-    text.split('\n').forEach((line, index) => {
-        const trimmedLine = line.trim();
-        if (trimmedLine.startsWith('### ')) {
-            flushList();
-            elements.push(<h3 key={index} className="text-xl font-semibold mt-4 mb-2">{parseInline(trimmedLine.substring(4))}</h3>);
-        } else if (trimmedLine.startsWith('* ')) {
-            listItems.push(<li key={index}>{parseInline(trimmedLine.substring(2))}</li>);
-        } else if (trimmedLine === '---') {
-            flushList();
-            elements.push(<hr key={index} className="my-4 border-slate-300 dark:border-slate-600" />);
-        } else if (trimmedLine === '') {
-            flushList();
-        } else {
-            flushList();
-            elements.push(<p key={index} className="my-1">{parseInline(trimmedLine)}</p>);
-        }
-    });
-
-    flushList(); // Flush any remaining list items
-
-    return <>{elements}</>;
-};
-
-
-const ResultCard: React.FC<ResultCardProps> = ({ icon, title, text, isLoading, contentClassName = '' }) => {
+const ResultCard: React.FC<ResultCardProps> = ({ icon, title, subtitle, text, isLoading, contentClassName = '', highlightRange }) => {
     const [isCopied, setIsCopied] = useState(false);
 
     const handleCopy = () => {
@@ -74,21 +32,38 @@ const ResultCard: React.FC<ResultCardProps> = ({ icon, title, text, isLoading, c
         </div>
     );
 
+    let processedText = text;
+    if (text && highlightRange) {
+        const { start, length } = highlightRange;
+        const end = start + length;
+        if (start >= 0 && end <= text.length) {
+            const prefix = text.substring(0, start);
+            const highlighted = text.substring(start, end);
+            const suffix = text.substring(end);
+            processedText = `${prefix}<mark class="bg-yellow-300 dark:bg-yellow-500/70 px-1 rounded">${highlighted}</mark>${suffix}`;
+        }
+    }
+
     if (!text) {
       contentClassName = ''
     }
 
     return (
         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-md p-6 h-full flex flex-col">
-            <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-start justify-between gap-3 mb-4">
                 <div className="flex items-center gap-3">
                     <div className="text-indigo-500">{icon}</div>
-                    <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">{title}</h3>
+                    <div className="flex flex-col justify-center min-h-10">
+                        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 leading-tight">{title}</h3>
+                        {subtitle && (
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>
+                        )}
+                    </div>
                 </div>
                 {text && !isLoading && (
                     <button 
                         onClick={handleCopy}
-                        className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300 transition-colors"
+                        className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300 transition-colors flex-shrink-0"
                         aria-label="Copy to clipboard"
                     >
                         {isCopied ? (
@@ -99,11 +74,30 @@ const ResultCard: React.FC<ResultCardProps> = ({ icon, title, text, isLoading, c
                     </button>
                 )}
             </div>
-            <div className={`text-slate-600 dark:text-slate-300 font-sans min-h-[72px] flex-grow ${contentClassName}`}>
+            <div 
+                data-content-area="true"
+                className={`text-slate-600 dark:text-slate-300 font-sans min-h-[72px] flex-grow prose dark:prose-invert prose-p:my-1 prose-h3:my-2 prose-ul:my-2 max-w-none ${contentClassName}`}
+            >
                 {isLoading ? (
                     <SkeletonLoader />
                 ) : text ? (
-                    <MarkdownRenderer text={text} />
+                    <ReactMarkdown
+                        rehypePlugins={[rehypeRaw]}
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                            // FIX: Cast `node` to `any` to access the `position` property. The `position` property exists on the node at runtime but is missing from the HAST `Element` type definition, causing a TypeScript error.
+                            h3: ({node, ...props}) => <h3 className="text-xl font-semibold mt-4 mb-2" data-char-offset={(node as any).position?.start.offset} {...props} />,
+                            // FIX: Cast `node` to `any` to access the `position` property. The `position` property exists on the node at runtime but is missing from the HAST `Element` type definition, causing a TypeScript error.
+                            ul: ({node, ...props}) => <ul className="list-disc list-inside space-y-1 my-2 pl-2" data-char-offset={(node as any).position?.start.offset} {...props} />,
+                            // FIX: Cast `node` to `any` to access the `position` property. The `position` property exists on the node at runtime but is missing from the HAST `Element` type definition, causing a TypeScript error.
+                            li: ({node, ...props}) => <li className="my-1" data-char-offset={(node as any).position?.start.offset} {...props} />,
+                            // FIX: Cast `node` to `any` to access the `position` property. The `position` property exists on the node at runtime but is missing from the HAST `Element` type definition, causing a TypeScript error.
+                            p: ({node, ...props}) => <p className="my-1" data-char-offset={(node as any).position?.start.offset} {...props} />,
+                            hr: ({node, ...props}) => <hr className="my-4 border-slate-300 dark:border-slate-600" {...props} />,
+                        }}
+                    >
+                        {processedText || ''}
+                    </ReactMarkdown>
                 ) : (
                     <span className="text-slate-400 dark:text-slate-500">Result will appear here...</span>
                 )}
@@ -112,4 +106,4 @@ const ResultCard: React.FC<ResultCardProps> = ({ icon, title, text, isLoading, c
     );
 };
 
-export default ResultCard;
+export default React.memo(ResultCard);
