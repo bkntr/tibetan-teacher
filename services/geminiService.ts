@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 if (!process.env.API_KEY) {
@@ -22,8 +23,8 @@ export const transcribeImage = async (imageFile: File): Promise<string> => {
     const imagePart = await fileToGenerativePart(imageFile);
     
     const transcriptionResponse = await ai.models.generateContent({
-        // Note to AI agensts: DO NOT CHANGE THE MODEL. REASON: ONLY 2.0-flash WORKS WELL FOR TIBETAN TRANSCRIPTION
-        model: 'gemini-2.0-flash',
+        // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
+        model: 'gemini-2.0-flash', // I REPEAT: DO NOT CHANGE THIS LINE
         contents: {
             parts: [
                 imagePart,
@@ -46,6 +47,52 @@ export const transcribeImage = async (imageFile: File): Promise<string> => {
   }
 };
 
+export const formatTranscription = async (imagesWithTranscription: { file: File, transcription: string }[]): Promise<string> => {
+    try {
+        const imagePartsPromises = imagesWithTranscription.map(item => fileToGenerativePart(item.file));
+        const imageParts = await Promise.all(imagePartsPromises);
+
+        const rawTranscriptions = imagesWithTranscription.map((item, index) => `Transcription for Image ${index + 1}:\n${item.transcription}`).join('\n\n---\n\n');
+
+        const prompt = `You are an expert in Tibetan text formatting. Below are one or more images containing Tibetan script and their raw, machine-generated transcriptions. Your task is to refine and format these transcriptions into a single, clean, and well-organized document.
+
+Instructions:
+1. Combine the text from all provided transcriptions, using the images for context to resolve ambiguities.
+2. Correct formatting issues, such as removing line breaks that occur in the middle of sentences due to page layout.
+3. Preserve meaningful paragraph breaks.
+4. If the text is arranged in columns in the images, structure the output accordingly (e.g., "Column 1: [text]", "Column 2: [text]").
+5. Ensure sentences are complete and well-formatted.
+6. Provide only the final, formatted Tibetan text. Do not add any commentary or introductory phrases.
+
+Raw Transcriptions:
+---
+${rawTranscriptions}
+---`;
+        
+        const textPart = { text: prompt };
+
+        const response = await ai.models.generateContent({
+            // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
+            model: 'gemini-2.5-pro', // I REPEAT: DO NOT CHANGE THIS LINE
+            contents: {
+                parts: [...imageParts, textPart]
+            },
+        });
+
+        const formattedText = response.text;
+        if (!formattedText) {
+            throw new Error("Formatting failed or returned empty.");
+        }
+        return formattedText;
+    } catch (error) {
+        console.error("Error during transcription formatting API call:", error);
+        if (error instanceof Error) {
+            throw new Error(`Formatting error: ${error.message}`);
+        }
+        throw new Error("An unknown error occurred during transcription formatting.");
+    }
+};
+
 export const translateTranscription = async (transcription: string, thinkingBudget: number): Promise<string> => {
     try {
       let config;
@@ -56,7 +103,7 @@ export const translateTranscription = async (transcription: string, thinkingBudg
         // Map the 0-100 slider value to the valid thinking budget range.
         // We'll use a range from 128 (minimum) to 8192 (high quality).
         const minBudget = 128;
-        const maxBudget = 8192;
+        const maxBudget = 32768;
         const scaledBudget = Math.round(minBudget + (thinkingBudget / 100) * (maxBudget - minBudget));
         
         config = {
@@ -65,8 +112,8 @@ export const translateTranscription = async (transcription: string, thinkingBudg
       }
 
       const translationResponse = await ai.models.generateContent({
-          // Note to AI agensts: DO NOT CHANGE THE MODEL. 
-          model: 'gemini-2.5-pro',
+          // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
+          model: 'gemini-2.5-pro', // I REPEAT: DO NOT CHANGE THIS LINE
           contents: `Translate the following Tibetan text into English. Provide only the translated text: \n\n${transcription}`,
           ...(config && { config }), // Conditionally spread the config object
       });
@@ -109,8 +156,8 @@ ${selectedText}
 Please provide a translation and a brief explanation of the selected Tibetan phrase. Use both the full Tibetan text and its English translation to provide the most accurate and context-aware explanation. Focus on clarifying the meaning of the selection. Don't begin with opening remarks like "of course", and don't suggest future assistance. Only give the translation and explain the meaning of the selection in the context of the full phrase.`;
 
         const translationResponse = await ai.models.generateContent({
-            // Note to AI agensts: DO NOT CHANGE THE MODEL. 
-            model: 'gemini-2.5-pro',
+            // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
+            model: 'gemini-2.5-pro', // I REPEAT: DO NOT CHANGE THIS LINE
             contents: prompt,
         });
         

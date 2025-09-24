@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { ClipboardIcon, ClipboardCheckIcon } from './icons';
+import { ClipboardIcon, ClipboardCheckIcon, PencilIcon, CheckIcon } from './icons';
 
 interface ResultCardProps {
     icon: React.ReactNode;
@@ -12,10 +12,35 @@ interface ResultCardProps {
     isLoading: boolean;
     contentClassName?: string;
     highlightRange?: { start: number; length: number } | null;
+    isEditable?: boolean;
+    isEditing?: boolean;
+    onToggleEdit?: () => void;
+    onTextChange?: (newText: string) => void;
 }
 
-const ResultCard: React.FC<ResultCardProps> = ({ icon, title, subtitle, text, isLoading, contentClassName = '', highlightRange }) => {
+const ResultCard: React.FC<ResultCardProps> = ({ 
+    icon, 
+    title, 
+    subtitle, 
+    text, 
+    isLoading, 
+    contentClassName = '', 
+    highlightRange,
+    isEditable = false,
+    isEditing = false,
+    onToggleEdit,
+    onTextChange,
+}) => {
     const [isCopied, setIsCopied] = useState(false);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    // Auto-resize textarea height based on content
+    useEffect(() => {
+        if (isEditing && textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        }
+    }, [text, isEditing]);
 
     const handleCopy = () => {
         if (!text || isLoading) return;
@@ -44,7 +69,7 @@ const ResultCard: React.FC<ResultCardProps> = ({ icon, title, subtitle, text, is
         }
     }
 
-    if (!text) {
+    if (!text && !isEditing) {
       contentClassName = ''
     }
 
@@ -60,38 +85,54 @@ const ResultCard: React.FC<ResultCardProps> = ({ icon, title, subtitle, text, is
                         )}
                     </div>
                 </div>
-                {text && !isLoading && (
-                    <button 
-                        onClick={handleCopy}
-                        className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300 transition-colors flex-shrink-0"
-                        aria-label="Copy to clipboard"
-                    >
-                        {isCopied ? (
-                            <ClipboardCheckIcon className="w-5 h-5 text-green-500" />
-                        ) : (
-                            <ClipboardIcon className="w-5 h-5" />
-                        )}
-                    </button>
-                )}
+                <div className="flex items-center gap-2">
+                    {isEditable && (
+                        <button
+                            onClick={onToggleEdit}
+                            className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300 transition-colors flex-shrink-0"
+                            aria-label={isEditing ? 'Save changes' : 'Edit transcription'}
+                        >
+                            {isEditing ? <CheckIcon className="w-5 h-5 text-green-500" /> : <PencilIcon className="w-5 h-5" />}
+                        </button>
+                    )}
+                    {text && !isLoading && !isEditing && (
+                        <button 
+                            onClick={handleCopy}
+                            className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300 transition-colors flex-shrink-0"
+                            aria-label="Copy to clipboard"
+                        >
+                            {isCopied ? (
+                                <ClipboardCheckIcon className="w-5 h-5 text-green-500" />
+                            ) : (
+                                <ClipboardIcon className="w-5 h-5" />
+                            )}
+                        </button>
+                    )}
+                </div>
             </div>
             <div 
                 data-content-area="true"
-                className={`text-slate-600 dark:text-slate-300 font-sans min-h-[72px] flex-grow prose dark:prose-invert prose-p:my-1 prose-h3:my-2 prose-ul:my-2 max-w-none ${contentClassName}`}
+                className={`whitespace-pre-wrap text-slate-600 dark:text-slate-300 font-sans min-h-[72px] flex-grow prose dark:prose-invert prose-p:my-1 prose-h3:my-2 prose-ul:my-2 max-w-none ${contentClassName}`}
             >
                 {isLoading ? (
                     <SkeletonLoader />
+                ) : isEditing ? (
+                    <textarea
+                        ref={textareaRef}
+                        value={text || ''}
+                        onChange={(e) => onTextChange?.(e.target.value)}
+                        className={`w-full bg-slate-50 dark:bg-slate-700/50 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none overflow-hidden ${contentClassName}`}
+                        rows={3}
+                        aria-label="Editable transcription text"
+                    />
                 ) : text ? (
                     <ReactMarkdown
                         rehypePlugins={[rehypeRaw]}
                         remarkPlugins={[remarkGfm]}
                         components={{
-                            // FIX: Cast `node` to `any` to access the `position` property. The `position` property exists on the node at runtime but is missing from the HAST `Element` type definition, causing a TypeScript error.
                             h3: ({node, ...props}) => <h3 className="text-xl font-semibold mt-4 mb-2" data-char-offset={(node as any).position?.start.offset} {...props} />,
-                            // FIX: Cast `node` to `any` to access the `position` property. The `position` property exists on the node at runtime but is missing from the HAST `Element` type definition, causing a TypeScript error.
                             ul: ({node, ...props}) => <ul className="list-disc list-inside space-y-1 my-2 pl-2" data-char-offset={(node as any).position?.start.offset} {...props} />,
-                            // FIX: Cast `node` to `any` to access the `position` property. The `position` property exists on the node at runtime but is missing from the HAST `Element` type definition, causing a TypeScript error.
                             li: ({node, ...props}) => <li className="my-1" data-char-offset={(node as any).position?.start.offset} {...props} />,
-                            // FIX: Cast `node` to `any` to access the `position` property. The `position` property exists on the node at runtime but is missing from the HAST `Element` type definition, causing a TypeScript error.
                             p: ({node, ...props}) => <p className="my-1" data-char-offset={(node as any).position?.start.offset} {...props} />,
                             hr: ({node, ...props}) => <hr className="my-4 border-slate-300 dark:border-slate-600" {...props} />,
                         }}

@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { AppState } from './types';
-import { transcribeImage, translateTranscription, getExplanationForSelection } from './services/geminiService';
+import { transcribeImage, formatTranscription, translateTranscription, getExplanationForSelection } from './services/geminiService';
 import ResultCard from './components/ResultCard';
 import Spinner from './components/Spinner';
 import { SparklesIcon, XCircleIcon, CheckCircleIcon, DocumentTextIcon, LanguageIcon, UploadIcon, XIcon, ResetIcon } from './components/icons';
@@ -33,6 +34,8 @@ const App: React.FC = () => {
   const [buttonPosition, setButtonPosition] = useState<{ top: number; left: number } | null>(null);
   const [useCustomBudget, setUseCustomBudget] = useState<boolean>(false);
   const [thinkingBudget, setThinkingBudget] = useState<number>(50);
+  
+  const [isEditingTranscription, setIsEditingTranscription] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const transcriptionContainerRef = useRef<HTMLDivElement>(null);
@@ -47,23 +50,59 @@ const App: React.FC = () => {
     };
   }, [images]);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    handleReset();
+  const handleReset = useCallback(() => {
+    setImages([]);
+    setTranscription(null);
+    setTranslation(null);
+    setError(null);
+    setAppState(AppState.IDLE);
+    setSelectedText(null);
+    setExplainedRange(null);
+    setButtonPosition(null);
+    setSelectionTranslation(null);
+    setSelectionError(null);
+    setIsTranslatingSelection(false);
+    setSelectionRange(null);
+    setIsEditingTranscription(false);
+  }, []);
+
+  const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
-    if (files) {
-      const newImageFiles = Array.from(files).map(file => ({
+    if (files && files.length > 0) {
+      // If we are adding new images, the previous results are now invalid.
+      // Reset everything except the images themselves.
+      setTranscription(null);
+      setTranslation(null);
+      setError(null);
+      setAppState(AppState.IDLE);
+      setSelectedText(null);
+      setExplainedRange(null);
+      setButtonPosition(null);
+      setSelectionTranslation(null);
+      setSelectionError(null);
+      setIsTranslatingSelection(false);
+      setSelectionRange(null);
+      setIsEditingTranscription(false);
+
+      // FIX: Explicitly type the 'file' parameter as 'File' to resolve type inference issues.
+      // This ensures that properties like 'name', 'lastModified' are available and that
+      // 'file' can be correctly used in URL.createObjectURL.
+      const newImageFiles = Array.from(files).map((file: File) => ({
         id: `${file.name}-${file.lastModified}`,
         file,
         url: URL.createObjectURL(file),
         status: 'pending' as ImageStatus,
       }));
-      setImages(newImageFiles);
+      setImages(prevImages => [...prevImages, ...newImageFiles]);
     }
-    // Reset file input value to allow re-uploading the same file
-    event.target.value = '';
-  };
+    
+    // Clear the input value to allow selecting the same file again
+    if (event.target) {
+        event.target.value = '';
+    }
+  }, []);
   
-  const handleRemoveImage = (idToRemove: string) => {
+  const handleRemoveImage = useCallback((idToRemove: string) => {
     setImages(prevImages => {
       const imageToRemove = prevImages.find(img => img.id === idToRemove);
       if (imageToRemove) {
@@ -71,9 +110,28 @@ const App: React.FC = () => {
       }
       return prevImages.filter(image => image.id !== idToRemove);
     });
-  };
+  }, []);
 
-  const handleProcessImages = async () => {
+  const handleUpdateTranslation = useCallback(async (textToTranslate: string) => {
+    if (!textToTranslate) return;
+
+    setAppState(AppState.PROCESSING_TRANSLATION);
+    setError(null);
+    setTranslation(null);
+
+    try {
+        const budgetToSend = useCustomBudget ? thinkingBudget : -1;
+        const translationResult = await translateTranscription(textToTranslate, budgetToSend);
+        setTranslation(translationResult);
+        setAppState(AppState.SUCCESS);
+    } catch (translationError) {
+        const errorMessage = translationError instanceof Error ? translationError.message : "An unknown error occurred during translation.";
+        setError(errorMessage);
+        setAppState(AppState.ERROR);
+    }
+  }, [useCustomBudget, thinkingBudget]);
+
+  const handleProcessImages = useCallback(async () => {
     if (images.length === 0) {
       setError("Please select at least one image.");
       setAppState(AppState.ERROR);
@@ -89,8 +147,8 @@ const App: React.FC = () => {
     setButtonPosition(null);
     setSelectionTranslation(null);
     setSelectionError(null);
+    setIsEditingTranscription(false);
 
-    // Set all images to transcribing
     setImages(prev => prev.map(img => ({ ...img, status: 'transcribing' as ImageStatus })));
 
     const transcriptionPromises = images.map(image =>
@@ -101,51 +159,63 @@ const App: React.FC = () => {
     const updatedImages = await Promise.all(transcriptionPromises);
     setImages(updatedImages);
 
-    const successfulTranscriptions = updatedImages
-      .filter(img => img.status === 'success' && img.transcription)
-      .map(img => img.transcription);
+    const successfulImages = updatedImages
+      .filter(img => img.status === 'success' && img.transcription);
 
-    if (successfulTranscriptions.length === 0) {
+    if (successfulImages.length === 0) {
       setError("Transcription failed for all images.");
       setAppState(AppState.ERROR);
       return;
     }
-
-    const combinedTranscription = successfulTranscriptions.join('\n\n---\n\n');
-    setTranscription(combinedTranscription);
-    setAppState(AppState.PROCESSING_TRANSLATION);
-
+    
+    setAppState(AppState.PROCESSING_FORMATTING);
+    let formattedTranscription: string;
     try {
-      const budgetToSend = useCustomBudget ? thinkingBudget : -1;
-      const translationResult = await translateTranscription(combinedTranscription, budgetToSend);
-      setTranslation(translationResult);
-      setAppState(AppState.SUCCESS);
-    } catch (translationError) {
-      const errorMessage = translationError instanceof Error ? translationError.message : "An unknown error occurred during translation.";
+      const imagesToFormat = successfulImages.map(img => ({
+        file: img.file,
+        transcription: img.transcription!,
+      }));
+      formattedTranscription = await formatTranscription(imagesToFormat);
+    } catch (formattingError) {
+      const errorMessage = formattingError instanceof Error ? formattingError.message : "An unknown error occurred during formatting.";
       setError(errorMessage);
       setAppState(AppState.ERROR);
+      return;
     }
-  };
-  
-  const handleReset = () => {
-    setImages([]);
-    setTranscription(null);
-    setTranslation(null);
-    setError(null);
-    setAppState(AppState.IDLE);
-    setSelectedText(null);
-    setExplainedRange(null);
-    setButtonPosition(null);
-    setSelectionTranslation(null);
-    setSelectionError(null);
-    setIsTranslatingSelection(false);
-    setSelectionRange(null);
-  };
 
-  const handleSelection = () => {
+    setTranscription(formattedTranscription);
+    await handleUpdateTranslation(formattedTranscription);
+  }, [images, handleUpdateTranslation]);
+  
+  const handleToggleEditTranscription = useCallback(() => {
+    const isEnteringEditMode = !isEditingTranscription;
+    setIsEditingTranscription(isEnteringEditMode);
+
+    if (isEnteringEditMode) {
+      // User clicked "Edit" icon
+      setTranslation(null); // Clear outdated translation
+      // Clear selection states when starting to edit
+      setSelectedText(null);
+      setButtonPosition(null);
+      setExplainedRange(null);
+      setSelectionTranslation(null);
+    } else {
+      // User clicked "Save" icon
+      if (transcription) {
+        handleUpdateTranslation(transcription);
+      }
+    }
+  }, [isEditingTranscription, transcription, handleUpdateTranslation]);
+
+  const handleTranscriptionChange = useCallback((newText: string) => {
+    setTranscription(newText);
+  }, []);
+
+  const handleSelection = useCallback(() => {
+    if (isEditingTranscription) return; // Don't handle text selection in edit mode
+
     const selection = window.getSelection();
     
-    // Reset selection state if there's no selection or it's collapsed
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
       setSelectedText(null);
       setButtonPosition(null);
@@ -157,7 +227,6 @@ const App: React.FC = () => {
     const selectedTextString = selection.toString();
     const trimmedText = selectedTextString.trim();
 
-    // Reset if selection is only whitespace
     if (trimmedText.length === 0) {
       setSelectedText(null);
       setButtonPosition(null);
@@ -165,7 +234,6 @@ const App: React.FC = () => {
       return;
     }
 
-    // Check if the selection is inside the valid content area
     const container = range.commonAncestorContainer;
     const element = container.nodeType === Node.ELEMENT_NODE ? (container as HTMLElement) : container.parentElement;
     if (!element || !element.closest('[data-content-area="true"]')) {
@@ -175,10 +243,8 @@ const App: React.FC = () => {
       return;
     }
 
-    // If all checks pass, proceed
     setSelectedText(trimmedText);
     
-    // Find element with offset to calculate absolute position
     let startNode = range.startContainer;
     let startElement = (startNode.nodeType === Node.TEXT_NODE ? startNode.parentElement : startNode) as HTMLElement;
     const blockElement = startElement.closest('[data-char-offset]');
@@ -186,7 +252,6 @@ const App: React.FC = () => {
     if (blockElement) {
         const blockOffset = parseInt(blockElement.getAttribute('data-char-offset') || '0', 10);
         
-        // Calculate offset within the block
         const preRange = document.createRange();
         preRange.selectNodeContents(blockElement);
         preRange.setEnd(range.startContainer, range.startOffset);
@@ -205,16 +270,12 @@ const App: React.FC = () => {
           left: rect.right - containerRect.left + 5,
         });
     }
-  };
+  }, [isEditingTranscription]);
 
-  const handleTranslateSelection = async () => {
+  const handleTranslateSelection = useCallback(async () => {
     if (!selectedText || !transcription || !translation || !selectionRange) return;
-
-    // Immediately highlight the text and hide the button for instant feedback
     setExplainedRange(selectionRange);
     setButtonPosition(null);
-    
-    // Set loading state and clear previous results
     setIsTranslatingSelection(true);
     setSelectionError(null);
     setSelectionTranslation(null);
@@ -225,17 +286,17 @@ const App: React.FC = () => {
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : "An unknown error occurred during selection translation.";
       setSelectionError(errorMessage);
-      // On error, remove the highlight to indicate the explanation failed
       setExplainedRange(null);
     } finally {
       setIsTranslatingSelection(false);
     }
-  };
+  }, [selectedText, transcription, translation, selectionRange]);
   
   const isProcessingTranscription = appState === AppState.PROCESSING_TRANSCRIPTION;
+  const isProcessingFormatting = appState === AppState.PROCESSING_FORMATTING;
   const isProcessingTranslation = appState === AppState.PROCESSING_TRANSLATION;
-  const isProcessing = isProcessingTranscription || isProcessingTranslation;
-  const canSelectText = appState === AppState.SUCCESS && transcription;
+  const isProcessing = isProcessingTranscription || isProcessingFormatting || isProcessingTranslation;
+  const canSelectText = appState === AppState.SUCCESS && transcription && !isEditingTranscription;
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 font-sans">
@@ -292,11 +353,11 @@ const App: React.FC = () => {
             <div className="flex flex-row items-center gap-4">
               <button
                   onClick={handleProcessImages}
-                  disabled={images.length === 0 || isProcessing}
+                  disabled={isProcessing || images.length === 0}
                   className="flex-grow bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all duration-300"
               >
-                  <SparklesIcon className="w-5 h-5"/>
-                  Transcribe & Translate
+                <SparklesIcon className="w-5 h-5"/>
+                Transcribe & Translate
               </button>
               <button
                   onClick={handleReset}
@@ -350,7 +411,7 @@ const App: React.FC = () => {
                 <div className="mt-6 flex items-center justify-center gap-3 text-slate-600 dark:text-slate-300">
                     <Spinner className="w-5 h-5" />
                     <span className="font-medium">
-                      {isProcessingTranscription ? 'Transcribing text from images...' : 'Translating combined text...'}
+                      {isProcessingTranscription ? 'Transcribing text from images...' : isProcessingFormatting ? 'Formatting transcription...' : 'Translating combined text...'}
                     </span>
                 </div>
             )}
@@ -384,18 +445,22 @@ const App: React.FC = () => {
                 <ResultCard 
                     icon={documentIcon}
                     title="Tibetan Transcription" 
-                    subtitle={appState === AppState.SUCCESS ? "Select text for a detailed explanation." : undefined}
+                    subtitle={appState === AppState.SUCCESS && !isEditingTranscription ? "Select text for a detailed explanation." : undefined}
                     text={transcription}
-                    isLoading={isProcessingTranscription}
+                    isLoading={isProcessingTranscription || isProcessingFormatting}
                     contentClassName="text-2xl"
                     highlightRange={explainedRange}
+                    isEditable={!!transcription && !isProcessing}
+                    isEditing={isEditingTranscription}
+                    onToggleEdit={handleToggleEditTranscription}
+                    onTextChange={handleTranscriptionChange}
                 />
             </div>
             <ResultCard
                 icon={languageIcon}
                 title="English Translation" 
                 text={translation}
-                isLoading={isProcessing}
+                isLoading={isProcessingTranslation}
             />
         </div>
 
