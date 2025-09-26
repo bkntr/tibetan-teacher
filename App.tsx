@@ -39,6 +39,7 @@ const App: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const transcriptionContainerRef = useRef<HTMLDivElement>(null);
+  const translationJobIdRef = useRef(0);
 
   const documentIcon = useMemo(() => <DocumentTextIcon className="w-6 h-6"/>, []);
   const languageIcon = useMemo(() => <LanguageIcon className="w-6 h-6"/>, []);
@@ -115,6 +116,7 @@ const App: React.FC = () => {
   const handleUpdateTranslation = useCallback(async (textToTranslate: string) => {
     if (!textToTranslate) return;
 
+    const currentJobId = ++translationJobIdRef.current;
     setAppState(AppState.PROCESSING_TRANSLATION);
     setError(null);
     setTranslation(null);
@@ -122,12 +124,16 @@ const App: React.FC = () => {
     try {
         const budgetToSend = useCustomBudget ? thinkingBudget : -1;
         const translationResult = await translateTranscription(textToTranslate, budgetToSend);
-        setTranslation(translationResult);
-        setAppState(AppState.SUCCESS);
+        if (translationJobIdRef.current === currentJobId) {
+            setTranslation(translationResult);
+            setAppState(AppState.SUCCESS);
+        }
     } catch (translationError) {
-        const errorMessage = translationError instanceof Error ? translationError.message : "An unknown error occurred during translation.";
-        setError(errorMessage);
-        setAppState(AppState.ERROR);
+        if (translationJobIdRef.current === currentJobId) {
+            const errorMessage = translationError instanceof Error ? translationError.message : "An unknown error occurred during translation.";
+            setError(errorMessage);
+            setAppState(AppState.ERROR);
+        }
     }
   }, [useCustomBudget, thinkingBudget]);
 
@@ -192,7 +198,14 @@ const App: React.FC = () => {
     setIsEditingTranscription(isEnteringEditMode);
 
     if (isEnteringEditMode) {
-      // User clicked "Edit" icon
+      // User clicked "Edit" icon, invalidate any ongoing translation
+      translationJobIdRef.current++;
+
+      // If a translation was in progress, stop the loading state.
+      if (appState === AppState.PROCESSING_TRANSLATION) {
+          setAppState(AppState.SUCCESS);
+      }
+      
       setTranslation(null); // Clear outdated translation
       // Clear selection states when starting to edit
       setSelectedText(null);
@@ -205,7 +218,7 @@ const App: React.FC = () => {
         handleUpdateTranslation(transcription);
       }
     }
-  }, [isEditingTranscription, transcription, handleUpdateTranslation]);
+  }, [isEditingTranscription, transcription, handleUpdateTranslation, appState]);
 
   const handleTranscriptionChange = useCallback((newText: string) => {
     setTranscription(newText);
@@ -450,7 +463,7 @@ const App: React.FC = () => {
                     isLoading={isProcessingTranscription || isProcessingFormatting}
                     contentClassName="text-2xl"
                     highlightRange={explainedRange}
-                    isEditable={!!transcription && !isProcessing}
+                    isEditable={!!transcription && !isProcessingTranscription && !isProcessingFormatting}
                     isEditing={isEditingTranscription}
                     onToggleEdit={handleToggleEditTranscription}
                     onTextChange={handleTranscriptionChange}
