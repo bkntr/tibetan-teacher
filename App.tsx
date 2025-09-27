@@ -46,6 +46,10 @@ const App: React.FC = () => {
   
   const [isEditingTranscription, setIsEditingTranscription] = useState<boolean>(false);
 
+  // State for drag and drop functionality
+  const [draggedImageId, setDraggedImageId] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const transcriptionContainerRef = useRef<HTMLDivElement>(null);
   const translationJobIdRef = useRef(0);
@@ -102,44 +106,44 @@ const App: React.FC = () => {
     }
   };
 
+  const addImageFiles = useCallback((filesToAdd: File[]) => {
+    // If we are adding new images, the previous results are now invalid.
+    setTranscription(null);
+    setTranslation(null);
+    setError(null);
+    setAppState(AppState.IDLE);
+    setSelectedText(null);
+    setExplainedRange(null);
+    setButtonPosition(null);
+    setSelectionTranslation(null);
+    setSelectionError(null);
+    setIsTranslatingSelection(false);
+    setAlternateTranslations(null);
+    setIsGeneratingAlternates(false);
+    setAlternatesError(null);
+    setSelectionRange(null);
+    setIsEditingTranscription(false);
+
+    const newImageFiles = filesToAdd.map((file: File) => ({
+      id: `${file.name}-${file.lastModified}-${Math.random()}`,
+      file,
+      url: URL.createObjectURL(file),
+      status: 'pending' as ImageStatus,
+    }));
+    setImages(prevImages => [...prevImages, ...newImageFiles]);
+  }, []);
+
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
-      // If we are adding new images, the previous results are now invalid.
-      // Reset everything except the images themselves.
-      setTranscription(null);
-      setTranslation(null);
-      setError(null);
-      setAppState(AppState.IDLE);
-      setSelectedText(null);
-      setExplainedRange(null);
-      setButtonPosition(null);
-      setSelectionTranslation(null);
-      setSelectionError(null);
-      setIsTranslatingSelection(false);
-      setAlternateTranslations(null);
-      setIsGeneratingAlternates(false);
-      setAlternatesError(null);
-      setSelectionRange(null);
-      setIsEditingTranscription(false);
-
-      // FIX: Explicitly type the 'file' parameter as 'File' to resolve type inference issues.
-      // This ensures that properties like 'name', 'lastModified' are available and that
-      // 'file' can be correctly used in URL.createObjectURL.
-      const newImageFiles = Array.from(files).map((file: File) => ({
-        id: `${file.name}-${file.lastModified}`,
-        file,
-        url: URL.createObjectURL(file),
-        status: 'pending' as ImageStatus,
-      }));
-      setImages(prevImages => [...prevImages, ...newImageFiles]);
+      addImageFiles(Array.from(files));
     }
     
     // Clear the input value to allow selecting the same file again
     if (event.target) {
         event.target.value = '';
     }
-  }, []);
+  }, [addImageFiles]);
   
   const handleRemoveImage = useCallback((idToRemove: string) => {
     setImages(prevImages => {
@@ -405,6 +409,73 @@ const App: React.FC = () => {
         setIsGeneratingAlternates(false);
     }
   }, [selectedText, transcription, translation, selectionRange]);
+
+  // Handlers for file drag-and-drop upload
+  const handleFileDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.types.includes('Files') && !isProcessing) {
+        setIsDragOver(true);
+    }
+  };
+
+  const handleFileDragLeave = (e: React.DragEvent) => {
+      e.preventDefault();
+      if (e.currentTarget.contains(e.relatedTarget as Node)) {
+          return;
+      }
+      setIsDragOver(false);
+  };
+
+  const handleFileDragOver = (e: React.DragEvent) => {
+      e.preventDefault();
+  };
+
+  const handleFileDrop = (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      if (isProcessing) return;
+
+      const files = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
+      if (files.length > 0) {
+          addImageFiles(files);
+      }
+  };
+
+  // Handlers for reordering images
+  const handleImageDragStart = (e: React.DragEvent<HTMLDivElement>, id: string) => {
+    e.dataTransfer.setData('image-id', id);
+    setDraggedImageId(id);
+  };
+
+  const handleImageDragEnd = () => {
+      setDraggedImageId(null);
+  };
+
+  const handleImageDropReorder = (e: React.DragEvent<HTMLDivElement>, dropTargetId: string) => {
+      e.preventDefault();
+      e.stopPropagation(); // Prevent file drop handler on parent
+      const draggedId = e.dataTransfer.getData('image-id');
+      if (!draggedId || draggedId === dropTargetId) {
+          return;
+      }
+
+      setImages(prevImages => {
+          const dragIndex = prevImages.findIndex(img => img.id === draggedId);
+          const dropIndex = prevImages.findIndex(img => img.id === dropTargetId);
+
+          if (dragIndex !== -1 && dropIndex !== -1) {
+              const newImages = [...prevImages];
+              const [draggedItem] = newImages.splice(dragIndex, 1);
+              newImages.splice(dropIndex, 0, draggedItem);
+              return newImages;
+          }
+          return prevImages;
+      });
+  };
+
+  const handleImageDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+  };
   
   const isProcessingTranscription = appState === AppState.PROCESSING_TRANSCRIPTION;
   const isProcessingFormatting = appState === AppState.PROCESSING_FORMATTING;
@@ -453,7 +524,19 @@ const App: React.FC = () => {
 
             <div className="p-6">
                 {inputMode === 'image' && (
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
+                    <div
+                      onDrop={handleFileDrop}
+                      onDragOver={handleFileDragOver}
+                      onDragEnter={handleFileDragEnter}
+                      onDragLeave={handleFileDragLeave}
+                      className="relative grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6"
+                    >
+                    {isDragOver && (
+                        <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-indigo-500 bg-indigo-500/10 backdrop-blur-sm">
+                            <UploadIcon className="w-12 h-12 text-indigo-600" />
+                            <p className="font-semibold text-indigo-700 dark:text-indigo-300">Drop images here</p>
+                        </div>
+                    )}
                     <input
                         type="file"
                         ref={fileInputRef}
@@ -464,27 +547,35 @@ const App: React.FC = () => {
                         multiple
                     />
                     {images.map(image => (
-                        <div key={image.id} className="relative aspect-square group">
-                        <img src={image.url} alt={`preview ${image.id}`} className="object-cover w-full h-full rounded-lg" />
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
-                            {image.status === 'transcribing' && <Spinner className="w-8 h-8 text-white"/>}
-                            {image.status === 'success' && <CheckCircleIcon className="w-10 h-10 text-green-400"/>}
-                            {image.status === 'error' && <XCircleIcon className="w-10 h-10 text-red-400"/>}
-                        </div>
-                        {!isProcessing && (
-                            <button onClick={() => handleRemoveImage(image.id)} className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-black/80">
-                            <XIcon className="w-4 h-4"/>
-                            </button>
-                        )}
+                        <div
+                            key={image.id}
+                            draggable={!isProcessing}
+                            onDragStart={(e) => handleImageDragStart(e, image.id)}
+                            onDragEnd={handleImageDragEnd}
+                            onDrop={(e) => handleImageDropReorder(e, image.id)}
+                            onDragOver={handleImageDragOver}
+                            className={`relative aspect-square group transition-opacity ${!isProcessing ? 'cursor-grab' : ''} ${draggedImageId === image.id ? 'opacity-30 cursor-grabbing' : 'opacity-100'}`}
+                        >
+                          <img src={image.url} alt={`preview ${image.id}`} className="object-cover w-full h-full rounded-lg" />
+                          <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                              {image.status === 'transcribing' && <Spinner className="w-8 h-8 text-white"/>}
+                              {image.status === 'success' && <CheckCircleIcon className="w-10 h-10 text-green-400"/>}
+                              {image.status === 'error' && <XCircleIcon className="w-10 h-10 text-red-400"/>}
+                          </div>
+                          {!isProcessing && (
+                              <button onClick={() => handleRemoveImage(image.id)} className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-black/80 z-10">
+                              <XIcon className="w-4 h-4"/>
+                              </button>
+                          )}
                         </div>
                     ))}
                     {!isProcessing && (
                         <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-full aspect-square border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 hover:border-indigo-500 hover:text-indigo-500 transition-colors"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="w-full aspect-square border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 hover:border-indigo-500 hover:text-indigo-500 transition-colors"
                         >
-                        <UploadIcon className="w-8 h-8" />
-                        <span className="text-sm mt-2">Add Images</span>
+                          <UploadIcon className="w-8 h-8" />
+                          <span className="text-sm mt-2">Add Images</span>
                         </button>
                     )}
                     </div>
