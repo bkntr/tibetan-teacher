@@ -174,3 +174,46 @@ Please provide a translation and a brief explanation of the selected Tibetan phr
         throw new Error("An unknown error occurred during the explanation process.");
     }
 }
+
+export const getAlternateTranslations = async (selectedText: string, fullText: string, englishTranslation: string): Promise<string> => {
+    try {
+        const prompt = `Here is a full Tibetan text and its English translation:
+
+Tibetan Text:
+---
+${fullText}
+---
+
+English Translation:
+---
+${englishTranslation}
+---
+
+Within the Tibetan text, the user has selected this specific phrase:
+
+Selected Phrase:
+---
+${selectedText}
+---
+
+Please provide a few alternative English translations for the selected phrase. For each alternative, briefly explain any nuance or context that makes it a valid translation. Format the response as a clear, easy-to-read list. Do not begin with opening remarks like "of course", and do not suggest future assistance.`;
+
+        const response = await ai.models.generateContent({
+            // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
+            model: 'gemini-2.5-pro', // I REPEAT: DO NOT CHANGE THIS LINE
+            contents: prompt,
+        });
+        
+        const alternatives = response.text;
+        if (!alternatives) {
+            throw new Error("Generating alternate translations failed or returned empty.");
+        }
+        return alternatives;
+    } catch (error) {
+        console.error("Error during alternate translation API call:", error);
+        if (error instanceof Error) {
+            throw new Error(`An error occurred during alternate translation: ${error.message}`);
+        }
+        throw new Error("An unknown error occurred during the alternate translation process.");
+    }
+}

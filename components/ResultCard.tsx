@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import remarkBreaks from 'remark-breaks';
 import { ClipboardIcon, ClipboardCheckIcon, PencilIcon, CheckIcon } from './icons';
 
 interface ResultCardProps {
@@ -112,7 +113,7 @@ const ResultCard: React.FC<ResultCardProps> = ({
             </div>
             <div 
                 data-content-area="true"
-                className={`whitespace-pre-wrap text-slate-600 dark:text-slate-300 font-sans min-h-[72px] flex-grow prose dark:prose-invert prose-p:my-1 prose-h3:my-2 prose-ul:my-2 max-w-none ${contentClassName}`}
+                className={`text-slate-600 dark:text-slate-300 font-sans min-h-[72px] flex-grow prose dark:prose-invert prose-p:my-1 prose-h3:my-2 prose-ul:my-2 max-w-none ${contentClassName}`}
             >
                 {isLoading ? (
                     <SkeletonLoader />
@@ -128,11 +129,12 @@ const ResultCard: React.FC<ResultCardProps> = ({
                 ) : text ? (
                     <ReactMarkdown
                         rehypePlugins={[rehypeRaw]}
-                        remarkPlugins={[remarkGfm]}
+                        remarkPlugins={[remarkGfm, remarkBreaks]}
                         components={{
                             h3: ({node, ...props}) => <h3 className="text-xl font-semibold mt-4 mb-2" data-char-offset={(node as any).position?.start.offset} {...props} />,
-                            ul: ({node, ...props}) => <ul className="list-disc list-inside space-y-1 my-2 pl-2" data-char-offset={(node as any).position?.start.offset} {...props} />,
-                            li: ({node, ...props}) => <li className="my-1" data-char-offset={(node as any).position?.start.offset} {...props} />,
+                            ol: ({node, ...props}) => <ol className="list-decimal list-outside pl-5 my-2" data-char-offset={(node as any).position?.start.offset} {...props} />,
+                            ul: ({node, ...props}) => <ul className="list-disc list-outside pl-5 my-2" data-char-offset={(node as any).position?.start.offset} {...props} />,
+                            li: ({node, ...props}) => <li data-char-offset={(node as any).position?.start.offset} {...props} />,
                             p: ({node, ...props}) => <p className="my-1" data-char-offset={(node as any).position?.start.offset} {...props} />,
                             hr: ({node, ...props}) => <hr className="my-4 border-slate-300 dark:border-slate-600" {...props} />,
                         }}
