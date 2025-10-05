@@ -60,9 +60,10 @@ Instructions:
 1. Combine the text from all provided transcriptions, using the images for context to resolve ambiguities.
 2. Correct formatting issues, such as removing line breaks that occur in the middle of sentences due to page layout.
 3. Preserve meaningful paragraph breaks.
-4. If the text is arranged in columns in the images, structure the output accordingly (e.g., "Column 1: [text]", "Column 2: [text]").
+4. If the text is arranged in columns in the images, structure the output accordingly.
 5. Ensure sentences are complete and well-formatted.
 6. Provide only the final, formatted Tibetan text. Do not add any commentary or introductory phrases.
+7. If the text consists of two columns, and the lines in the two columns have lines connecting the two different sentence parts, form complete sentences according to the lines matching the differnt parts.
 
 Raw Transcriptions:
 ---
