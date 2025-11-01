@@ -32,6 +32,7 @@ const App: React.FC = () => {
   const [selectedText, setSelectedText] = useState<string | null>(null);
   const [selectionRange, setSelectionRange] = useState<SelectionRange | null>(null);
   const [explainedRange, setExplainedRange] = useState<SelectionRange | null>(null);
+  const [englishHighlightRange, setEnglishHighlightRange] = useState<SelectionRange | null>(null);
   const [selectionTranslation, setSelectionTranslation] = useState<string | null>(null);
   const [isTranslatingSelection, setIsTranslatingSelection] = useState<boolean>(false);
   const [selectionError, setSelectionError] = useState<string | null>(null);
@@ -87,6 +88,7 @@ const App: React.FC = () => {
     setAppState(AppState.IDLE);
     setSelectedText(null);
     setExplainedRange(null);
+    setEnglishHighlightRange(null);
     setButtonPosition(null);
     setSelectionTranslation(null);
     setSelectionError(null);
@@ -114,6 +116,7 @@ const App: React.FC = () => {
     setAppState(AppState.IDLE);
     setSelectedText(null);
     setExplainedRange(null);
+    setEnglishHighlightRange(null);
     setButtonPosition(null);
     setSelectionTranslation(null);
     setSelectionError(null);
@@ -162,6 +165,7 @@ const App: React.FC = () => {
     setAppState(AppState.PROCESSING_TRANSLATION);
     setError(null);
     setTranslation(null);
+    setEnglishHighlightRange(null);
 
     try {
         const budgetToSend = useCustomBudget ? thinkingBudget : -1;
@@ -192,6 +196,7 @@ const App: React.FC = () => {
     setTranslation(null);
     setSelectedText(null);
     setExplainedRange(null);
+    setEnglishHighlightRange(null);
     setButtonPosition(null);
     setSelectionTranslation(null);
     setSelectionError(null);
@@ -250,6 +255,7 @@ const App: React.FC = () => {
     setError(null);
     setSelectedText(null);
     setExplainedRange(null);
+    setEnglishHighlightRange(null);
     setButtonPosition(null);
     setSelectionTranslation(null);
     setSelectionError(null);
@@ -285,6 +291,7 @@ const App: React.FC = () => {
       setSelectedText(null);
       setButtonPosition(null);
       setExplainedRange(null);
+      setEnglishHighlightRange(null);
       setSelectionTranslation(null);
     } else {
       // User clicked "Save" icon
@@ -369,6 +376,7 @@ const App: React.FC = () => {
   const handleTranslateSelection = useCallback(async () => {
     if (!selectedText || !transcription || !translation || !selectionRange) return;
     setExplainedRange(selectionRange);
+    setEnglishHighlightRange(null);
     setButtonPosition(null);
     setIsTranslatingSelection(true);
     setSelectionError(null);
@@ -378,11 +386,18 @@ const App: React.FC = () => {
 
     try {
       const result = await getExplanationForSelection(selectedText, transcription, translation);
-      setSelectionTranslation(`**Selected Phrase:**\n\n> ${selectedText}\n\n---\n\n${result}`);
+      setSelectionTranslation(`**Selected Phrase:**\n\n> ${selectedText}\n\n**Translated as:**\n\n> ${result.correspondingEnglishText}\n\n---\n\n${result.explanation}`);
+      if (result.correspondingEnglishText && translation) {
+        const startIndex = translation.indexOf(result.correspondingEnglishText);
+        if (startIndex > -1) {
+            setEnglishHighlightRange({ start: startIndex, length: result.correspondingEnglishText.length });
+        }
+      }
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : "An unknown error occurred during selection translation.";
       setSelectionError(errorMessage);
       setExplainedRange(null);
+      setEnglishHighlightRange(null);
     } finally {
       setIsTranslatingSelection(false);
     }
@@ -391,6 +406,7 @@ const App: React.FC = () => {
   const handleAlternateTranslations = useCallback(async () => {
     if (!selectedText || !transcription || !translation || !selectionRange) return;
     setExplainedRange(selectionRange);
+    setEnglishHighlightRange(null);
     setButtonPosition(null);
     setIsGeneratingAlternates(true);
     setAlternatesError(null);
@@ -400,11 +416,18 @@ const App: React.FC = () => {
 
     try {
         const result = await getAlternateTranslations(selectedText, transcription, translation);
-        setAlternateTranslations(result);
+        setAlternateTranslations(result.alternatives);
+        if (result.correspondingEnglishText && translation) {
+            const startIndex = translation.indexOf(result.correspondingEnglishText);
+            if (startIndex > -1) {
+                setEnglishHighlightRange({ start: startIndex, length: result.correspondingEnglishText.length });
+            }
+        }
     } catch (e) {
         const errorMessage = e instanceof Error ? e.message : "An unknown error occurred during alternate translation.";
         setAlternatesError(errorMessage);
         setExplainedRange(null); // Clear highlight on error
+        setEnglishHighlightRange(null);
     } finally {
         setIsGeneratingAlternates(false);
     }
@@ -732,6 +755,7 @@ const App: React.FC = () => {
                 title="English Translation" 
                 text={translation}
                 isLoading={isProcessingTranslation}
+                highlightRange={englishHighlightRange}
             />
         </div>
 

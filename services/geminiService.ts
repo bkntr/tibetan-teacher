@@ -1,5 +1,5 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 if (!process.env.API_KEY) {
   throw new Error("API_KEY environment variable not set");
@@ -133,7 +133,7 @@ export const translateTranscription = async (transcription: string, thinkingBudg
     }
   };
 
-export const getExplanationForSelection = async (selectedText: string, fullText: string, englishTranslation: string): Promise<string> => {
+export const getExplanationForSelection = async (selectedText: string, fullText: string, englishTranslation: string): Promise<{ explanation: string; correspondingEnglishText: string }> => {
     try {
         const prompt = `Here is a full Tibetan text and its English translation:
 
@@ -154,19 +154,34 @@ Selected Phrase:
 ${selectedText}
 ---
 
-Please provide a translation and a brief explanation of the selected Tibetan phrase. Use both the full Tibetan text and its English translation to provide the most accurate and context-aware explanation. Focus on clarifying the meaning of the selection. Don't begin with opening remarks like "of course", and don't suggest future assistance. Only give the translation and explain the meaning of the selection in the context of the full phrase.`;
+Your task is to:
+1. Provide a translation and a brief explanation of the selected Tibetan phrase, using the full context.
+2. Identify the exact, corresponding segment of text from the full English Translation provided above.
 
-        const translationResponse = await ai.models.generateContent({
+Return a JSON object with two keys: "explanation" and "correspondingEnglishText". The "explanation" should contain your analysis. The "correspondingEnglishText" should contain *only* the identified text segment from the English translation.`;
+
+        const response = await ai.models.generateContent({
             // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
             model: 'gemini-2.5-pro', // I REPEAT: DO NOT CHANGE THIS LINE
             contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        explanation: { type: Type.STRING },
+                        correspondingEnglishText: { type: Type.STRING }
+                    },
+                    required: ["explanation", "correspondingEnglishText"]
+                }
+            }
         });
         
-        const translation = translationResponse.text;
-        if (!translation) {
-            throw new Error("Explanation failed or returned empty.");
+        const result = JSON.parse(response.text);
+        if (!result || !result.explanation || typeof result.correspondingEnglishText === 'undefined') {
+            throw new Error("Explanation failed or returned an invalid format.");
         }
-        return translation;
+        return result;
     } catch (error) {
         console.error("Error during explanation API call:", error);
         if (error instanceof Error) {
@@ -176,7 +191,7 @@ Please provide a translation and a brief explanation of the selected Tibetan phr
     }
 }
 
-export const getAlternateTranslations = async (selectedText: string, fullText: string, englishTranslation: string): Promise<string> => {
+export const getAlternateTranslations = async (selectedText: string, fullText: string, englishTranslation: string): Promise<{ alternatives: string; correspondingEnglishText: string }> => {
     try {
         const prompt = `Here is a full Tibetan text and its English translation:
 
@@ -197,19 +212,34 @@ Selected Phrase:
 ${selectedText}
 ---
 
-Please provide a few alternative English translations for the selected phrase. For each alternative, briefly explain any nuance or context that makes it a valid translation. Format the response as a clear, easy-to-read list. Do not begin with opening remarks like "of course", and do not suggest future assistance.`;
+Your task is to:
+1. Provide a few alternative English translations for the selected phrase. For each, briefly explain any nuance. Format as a clear list.
+2. Identify the exact, corresponding segment of text from the full English Translation provided above.
+
+Return a JSON object with two keys: "alternatives" and "correspondingEnglishText". The "alternatives" should contain your list. The "correspondingEnglishText" should contain *only* the identified text segment from the English translation.`;
 
         const response = await ai.models.generateContent({
             // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
             model: 'gemini-2.5-pro', // I REPEAT: DO NOT CHANGE THIS LINE
             contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        alternatives: { type: Type.STRING },
+                        correspondingEnglishText: { type: Type.STRING }
+                    },
+                    required: ["alternatives", "correspondingEnglishText"]
+                }
+            }
         });
         
-        const alternatives = response.text;
-        if (!alternatives) {
-            throw new Error("Generating alternate translations failed or returned empty.");
+        const result = JSON.parse(response.text);
+        if (!result || !result.alternatives || typeof result.correspondingEnglishText === 'undefined') {
+            throw new Error("Generating alternate translations failed or returned an invalid format.");
         }
-        return alternatives;
+        return result;
     } catch (error) {
         console.error("Error during alternate translation API call:", error);
         if (error instanceof Error) {
