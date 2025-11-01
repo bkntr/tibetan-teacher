@@ -378,7 +378,7 @@ const App: React.FC = () => {
 
     try {
       const result = await getExplanationForSelection(selectedText, transcription, translation);
-      setSelectionTranslation(result);
+      setSelectionTranslation(`**Selected Phrase:**\n\n> ${selectedText}\n\n---\n\n${result}`);
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : "An unknown error occurred during selection translation.";
       setSelectionError(errorMessage);
@@ -430,14 +430,25 @@ const App: React.FC = () => {
       e.preventDefault();
   };
 
+  // FIX: Switched to a more robust for-loop to iterate through dropped files,
+  // preventing potential type errors when non-file items are dropped.
   const handleFileDrop = (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragOver(false);
       if (isProcessing) return;
 
-      const files = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
-      if (files.length > 0) {
-          addImageFiles(files);
+      const imageFiles: File[] = [];
+      if (e.dataTransfer.files) {
+        for(let i=0; i < e.dataTransfer.files.length; i++) {
+            const file = e.dataTransfer.files[i];
+            if (file.type.startsWith('image/')) {
+                imageFiles.push(file);
+            }
+        }
+      }
+      
+      if (imageFiles.length > 0) {
+          addImageFiles(imageFiles);
       }
   };
 
