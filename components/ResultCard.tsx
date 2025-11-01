@@ -137,6 +137,10 @@ const ResultCard: React.FC<ResultCardProps> = ({
                             li: ({node, ...props}) => <li data-char-offset={(node as any).position?.start.offset} {...props} />,
                             p: ({node, ...props}) => <p className="my-1" data-char-offset={(node as any).position?.start.offset} {...props} />,
                             hr: ({node, ...props}) => <hr className="my-4 border-slate-300 dark:border-slate-600" {...props} />,
+                            table: ({node, ...props}) => <table className="w-full my-4 text-sm border-collapse border border-slate-300 dark:border-slate-600" {...props} />,
+                            thead: ({node, ...props}) => <thead className="bg-slate-50 dark:bg-slate-700/50" {...props} />,
+                            th: ({node, ...props}) => <th className="border border-slate-300 dark:border-slate-600 font-semibold p-2 text-slate-900 dark:text-slate-200 text-left" {...props} />,
+                            td: ({node, ...props}) => <td className="border border-slate-300 dark:border-slate-600 p-2" {...props} />,
                         }}
                     >
                         {processedText || ''}

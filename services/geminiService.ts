@@ -73,7 +73,7 @@ ${rawTranscriptions}
         const textPart = { text: prompt };
 
         const response = await ai.models.generateContent({
-            // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
+            // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELelines. DO NOT CHANGE THIS LINE.
             model: 'gemini-2.5-pro', // I REPEAT: DO NOT CHANGE THIS LINE
             contents: {
                 parts: [...imageParts, textPart]
@@ -155,10 +155,10 @@ ${selectedText}
 ---
 
 Your task is to:
-1. Provide a translation and a brief explanation of the selected Tibetan phrase, using the full context.
-2. Identify the exact, corresponding segment of text from the full English Translation provided above.
+1. Provide a detailed explanation of the selected Tibetan phrase, using the full context for translation. At the beginning of your explanation, you MUST state what the translation of the selected part is. Format the full explanation using Markdown. Use headlines, bullet points, and tables where appropriate to make the explanation clear and easy to understand.
+2. Identify the exact, corresponding segment of text from the full English Translation provided above. If a direct, consecutive translation exists, return it. If there is no direct consecutive translation, return an empty string.
 
-Return a JSON object with two keys: "explanation" and "correspondingEnglishText". The "explanation" should contain your analysis. The "correspondingEnglishText" should contain *only* the identified text segment from the English translation.`;
+Return a JSON object with two keys: "explanation" and "correspondingEnglishText". The "explanation" should contain your Markdown-formatted analysis. The "correspondingEnglishText" should contain *only* the identified text segment from the English translation, or an empty string.`;
 
         const response = await ai.models.generateContent({
             // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
@@ -213,10 +213,10 @@ ${selectedText}
 ---
 
 Your task is to:
-1. Provide a few alternative English translations for the selected phrase. For each, briefly explain any nuance. Format as a clear list.
-2. Identify the exact, corresponding segment of text from the full English Translation provided above.
+1. Provide a few alternative English translations for the selected phrase. For each, briefly explain any nuance. Format your response using Markdown as a clear, easy-to-read list (e.g., using bullet points).
+2. Identify the exact, corresponding segment of text from the full English Translation provided above. If a direct, consecutive translation exists, return it. If there is no direct consecutive translation, return an empty string.
 
-Return a JSON object with two keys: "alternatives" and "correspondingEnglishText". The "alternatives" should contain your list. The "correspondingEnglishText" should contain *only* the identified text segment from the English translation.`;
+Return a JSON object with two keys: "alternatives" and "correspondingEnglishText". The "alternatives" should contain your Markdown-formatted list. The "correspondingEnglishText" should contain *only* the identified text segment from the English translation, or an empty string.`;
 
         const response = await ai.models.generateContent({
             // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
