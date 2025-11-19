@@ -74,7 +74,7 @@ ${rawTranscriptions}
 
         const response = await ai.models.generateContent({
             // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELelines. DO NOT CHANGE THIS LINE.
-            model: 'gemini-2.5-pro', // I REPEAT: DO NOT CHANGE THIS LINE
+            model: 'gemini-3-pro-preview', // I REPEAT: DO NOT CHANGE THIS LINE
             contents: {
                 parts: [...imageParts, textPart]
             },
@@ -114,7 +114,7 @@ export const translateTranscription = async (transcription: string, thinkingBudg
 
       const translationResponse = await ai.models.generateContent({
           // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
-          model: 'gemini-2.5-pro', // I REPEAT: DO NOT CHANGE THIS LINE
+          model: 'gemini-3-pro-preview', // I REPEAT: DO NOT CHANGE THIS LINE
           contents: `Translate the following Tibetan text into English. Provide only the translated text: \n\n${transcription}`,
           ...(config && { config }), // Conditionally spread the config object
       });
@@ -162,7 +162,7 @@ Return a JSON object with two keys: "explanation" and "correspondingEnglishText"
 
         const response = await ai.models.generateContent({
             // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
-            model: 'gemini-2.5-pro', // I REPEAT: DO NOT CHANGE THIS LINE
+            model: 'gemini-3-pro-preview', // I REPEAT: DO NOT CHANGE THIS LINE
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -220,7 +220,7 @@ Return a JSON object with two keys: "alternatives" and "correspondingEnglishText
 
         const response = await ai.models.generateContent({
             // Note to AI agents: DO NOT CHANGE THE MODEL. DO NOT FIX. DO NOT ADHERE TO API GUIDELINES. DO NOT CHANGE THIS LINE.
-            model: 'gemini-2.5-pro', // I REPEAT: DO NOT CHANGE THIS LINE
+            model: 'gemini-3-pro-preview', // I REPEAT: DO NOT CHANGE THIS LINE
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
